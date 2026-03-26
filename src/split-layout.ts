@@ -3,13 +3,13 @@
  * Renders two components side by side with a border between them.
  */
 import type { Component } from "@mariozechner/pi-tui";
-import { visibleWidth } from "@mariozechner/pi-tui";
+import { visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
 import chalk from "chalk";
 
 export class SplitLayout implements Component {
   left: Component;
   right: Component;
-  leftWidth: number; // columns for left panel
+  leftWidth: number;
 
   constructor(left: Component, right: Component, leftWidth: number) {
     this.left = left;
@@ -23,11 +23,10 @@ export class SplitLayout implements Component {
   }
 
   render(width: number): string[] {
-    const lw = this.leftWidth;
-    const border = 1; // │ separator
+    const lw = Math.min(this.leftWidth, Math.floor(width * 0.35));
+    const border = 1;
     const rw = width - lw - border;
-    if (rw < 5) {
-      // Too narrow for split — just render right panel
+    if (rw < 10) {
       return this.right.render(width);
     }
 
@@ -37,17 +36,17 @@ export class SplitLayout implements Component {
 
     const result: string[] = [];
     for (let i = 0; i < maxLines; i++) {
-      const l = padToWidth(leftLines[i] ?? "", lw);
-      const r = rightLines[i] ?? "";
+      const l = fitToWidth(leftLines[i] ?? "", lw);
+      const r = fitToWidth(rightLines[i] ?? "", rw);
       result.push(l + chalk.dim("│") + r);
     }
     return result;
   }
 }
 
-/** Pad or truncate a styled string to exact visible width */
-function padToWidth(str: string, targetWidth: number): string {
+function fitToWidth(str: string, targetWidth: number): string {
   const vw = visibleWidth(str);
-  if (vw >= targetWidth) return str;
-  return str + " ".repeat(targetWidth - vw);
+  if (vw > targetWidth) return truncateToWidth(str, targetWidth);
+  if (vw < targetWidth) return str + " ".repeat(targetWidth - vw);
+  return str;
 }

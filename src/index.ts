@@ -5,6 +5,7 @@
  *
  * Usage: node --import tsx/esm src/index.ts
  */
+import "dotenv/config";
 import { TUI, Container, Text, Markdown, Editor, Spacer, ProcessTerminal } from "@mariozechner/pi-tui";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getMcpServers, getAllowedTools } from "mainai-primitives/js-runner/src/mcp-config.ts";
@@ -125,7 +126,7 @@ const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 rightPanel.addChild(chatArea);
 
 // Split layout: sidebar | right panel
-const splitLayout = new SplitLayout(sidebar, rightPanel, 22);
+const splitLayout = new SplitLayout(sidebar, rightPanel, 18);
 
 // ---------------------------------------------------------------------------
 // Submit handler
