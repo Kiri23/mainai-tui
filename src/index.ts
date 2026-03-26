@@ -55,6 +55,52 @@ async function appendEvent(streamId: string, eventType: string, payload: Record<
   } catch {}
 }
 
+// Poll for new events from other devices
+let lastSeenSeq = 0;
+
+async function startPolling() {
+  if (!tursoDb) return;
+  // Get current max sequence
+  const maxRes = await tursoDb.execute("SELECT COALESCE(MAX(sequence), 0) as seq FROM events");
+  lastSeenSeq = (maxRes.rows[0]?.seq as number) ?? 0;
+
+  setInterval(async () => {
+    try {
+      const result = await tursoDb.execute({
+        sql: "SELECT sequence, stream_id, event_type, payload, device, surface FROM events WHERE sequence > ? AND surface != 'tui' ORDER BY sequence ASC LIMIT 50",
+        args: [lastSeenSeq],
+      });
+      if (result.rows.length === 0) return;
+
+      for (const row of result.rows) {
+        lastSeenSeq = row.sequence as number;
+        const payload = JSON.parse(row.payload as string);
+        const device = row.device as string;
+        const streamId = row.stream_id as string;
+
+        if (row.event_type === "chat.created") {
+          sidebar.addChat({ id: streamId, title: payload.title ?? "Chat", device });
+          sidebar.invalidate();
+        }
+
+        if (row.event_type === "turn.user_message" && streamId === activeChatId) {
+          const msg = new Text();
+          msg.text = chalk.bold.green(`\n ${device} ❯ `) + (payload.content ?? "");
+          chatArea.addChild(msg);
+        }
+
+        if (row.event_type === "turn.assistant_text" && streamId === activeChatId) {
+          const md = new Markdown("", 1, 0, markdownTheme);
+          md.setText(payload.text ?? "");
+          chatArea.addChild(md);
+        }
+      }
+
+      tui.requestRender();
+    } catch {}
+  }, 3000);
+}
+
 // ---------------------------------------------------------------------------
 // Terminal + TUI setup
 // ---------------------------------------------------------------------------
@@ -235,6 +281,7 @@ tui.addChild(editor);
 // ---------------------------------------------------------------------------
 
 initTurso().then(() => {
+  startPolling();
   tui.start();
   tui.setFocus(editor);
   tui.requestRender();
