@@ -45,6 +45,23 @@ const editorTheme = {
   },
 };
 
+const markdownTheme = {
+  heading: (s: string) => chalk.bold.white(s),
+  link: (s: string) => chalk.cyan(s),
+  linkUrl: (s: string) => chalk.dim(s),
+  code: (s: string) => chalk.yellow(s),
+  codeBlock: (s: string) => chalk.white(s),
+  codeBlockBorder: (s: string) => chalk.dim(s),
+  quote: (s: string) => chalk.italic(s),
+  quoteBorder: (s: string) => chalk.dim(s),
+  hr: (s: string) => chalk.dim(s),
+  listBullet: (s: string) => chalk.cyan(s),
+  bold: (s: string) => chalk.bold(s),
+  italic: (s: string) => chalk.italic(s),
+  strikethrough: (s: string) => chalk.strikethrough(s),
+  underline: (s: string) => chalk.underline(s),
+};
+
 const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
 // ---------------------------------------------------------------------------
@@ -65,8 +82,7 @@ editor.onSubmit = async (text: string) => {
   assistantLabel.text = chalk.bold.magenta("\n MainAI ❯");
   chatArea.addChild(assistantLabel);
 
-  const md = new Markdown(editorTheme);
-  md.text = "";
+  const md = new Markdown("", 1, 0, markdownTheme);
   chatArea.addChild(md);
   tui.requestRender();
 
@@ -95,7 +111,7 @@ editor.onSubmit = async (text: string) => {
           for (const block of message.message?.content ?? []) {
             if (block.type === "text" && block.text) {
               fullText = block.text;
-              md.text = " " + fullText.replace(/\n/g, "\n ");
+              md.setText(fullText);
               md.invalidate();
               tui.requestRender();
             }
