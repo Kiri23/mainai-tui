@@ -59,7 +59,7 @@ async function main() {
   if (tursoDb) {
     await tursoDb.sync();
     const res = await tursoDb.execute(
-      "SELECT DISTINCT stream_id, payload, device FROM events WHERE event_type = chat.created ORDER BY sequence DESC LIMIT 20"
+      "SELECT DISTINCT stream_id, payload, device FROM events WHERE event_type = 'chat.created' ORDER BY sequence DESC LIMIT 20"
     );
     for (const row of res.rows) {
       const p = JSON.parse(row.payload as string);
