@@ -1,14 +1,58 @@
 /**
- * MainAI Terminal UI — Proof of Concept
+ * MainAI Terminal UI
  *
- * pi-tui rendering + Agent SDK query() + mainai-primitives tools
+ * pi-tui rendering + Agent SDK query() + mainai-primitives tools + Turso sync
  *
  * Usage: node --import tsx/esm src/index.ts
  */
 import { TUI, Container, Text, Markdown, Editor, Spacer, ProcessTerminal } from "@mariozechner/pi-tui";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getMcpServers, getAllowedTools } from "mainai-primitives/js-runner/src/mcp-config.ts";
+import { randomUUID } from "node:crypto";
 import chalk from "chalk";
+import { SplitLayout } from "./split-layout.ts";
+import { Sidebar } from "./sidebar.ts";
+
+// ---------------------------------------------------------------------------
+// Turso (optional — if env vars set)
+// ---------------------------------------------------------------------------
+
+let tursoDb: any = null;
+const TURSO_URL = process.env.TURSO_URL ?? "";
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN ?? "";
+
+async function initTurso() {
+  if (!TURSO_URL || !TURSO_TOKEN) return;
+  try {
+    const { createClient } = await import("@libsql/client/http");
+    tursoDb = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
+    // Load existing chats
+    const result = await tursoDb.execute(
+      "SELECT DISTINCT stream_id, event_type, payload, device FROM events WHERE event_type = 'chat.created' ORDER BY sequence DESC LIMIT 10"
+    );
+    for (const row of result.rows) {
+      const payload = JSON.parse(row.payload as string);
+      sidebar.addChat({
+        id: row.stream_id as string,
+        title: payload.title ?? "Chat",
+        device: row.device as string,
+      });
+    }
+    sidebar.invalidate();
+  } catch (e: any) {
+    // Turso optional — silently continue
+  }
+}
+
+async function appendEvent(streamId: string, eventType: string, payload: Record<string, unknown>) {
+  if (!tursoDb) return;
+  try {
+    await tursoDb.execute({
+      sql: "INSERT INTO events (event_id, stream_kind, stream_id, event_type, payload, device, surface, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      args: [randomUUID(), "chat", streamId, eventType, JSON.stringify(payload), "pixel", "tui", new Date().toISOString()],
+    });
+  } catch {}
+}
 
 // ---------------------------------------------------------------------------
 // Terminal + TUI setup
@@ -23,18 +67,11 @@ const tui = new TUI(terminal);
 
 let sessionId: string | null = null;
 let isRunning = false;
+let activeChatId: string = randomUUID();
 
 // ---------------------------------------------------------------------------
-// Components
+// Themes
 // ---------------------------------------------------------------------------
-
-const header = new Text();
-header.text = chalk.bold.cyan(" ◆ MainAI");
-
-const headerSep = new Text();
-headerSep.text = chalk.dim("─".repeat(60));
-
-const chatArea = new Container();
 
 const editorTheme = {
   borderColor: (s: string) => chalk.cyan(s),
@@ -62,10 +99,36 @@ const markdownTheme = {
   underline: (s: string) => chalk.underline(s),
 };
 
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+// Sidebar
+const sidebar = new Sidebar();
+sidebar.addChat({ id: activeChatId, title: "New Chat", device: "pixel" });
+sidebar.setActive(activeChatId);
+
+// Header
+const header = new Text();
+header.text = chalk.bold.cyan(" ◆ MainAI");
+
+// Chat area (right panel content)
+const chatArea = new Container();
+
+// Right panel = header + chat + spacer + editor
+const rightPanel = new Container();
+const chatSep = new Text();
+chatSep.text = chalk.dim("─".repeat(50));
+
 const editor = new Editor(tui, editorTheme, { paddingX: 1 });
 
+rightPanel.addChild(chatArea);
+
+// Split layout: sidebar | right panel
+const splitLayout = new SplitLayout(sidebar, rightPanel, 22);
+
 // ---------------------------------------------------------------------------
-// Submit handler — sends to Agent SDK
+// Submit handler
 // ---------------------------------------------------------------------------
 
 editor.onSubmit = async (text: string) => {
@@ -73,11 +136,24 @@ editor.onSubmit = async (text: string) => {
   isRunning = true;
   editor.setText("");
 
+  // Update sidebar title from first message
+  const chat = sidebar.chats.find(c => c.id === activeChatId);
+  if (chat && chat.title === "New Chat") {
+    chat.title = text.slice(0, 30) + (text.length > 30 ? "..." : "");
+    sidebar.invalidate();
+  }
+
+  // Write to Turso
+  appendEvent(activeChatId, "chat.created", { projectId: "default", title: chat?.title ?? text.slice(0, 30) });
+  appendEvent(activeChatId, "turn.user_message", { content: text });
+
+  // User message
   const userMsg = new Text();
   userMsg.text = chalk.bold.blue("\n you ❯ ") + text;
   chatArea.addChild(userMsg);
   tui.requestRender();
 
+  // Assistant label + markdown
   const assistantLabel = new Text();
   assistantLabel.text = chalk.bold.magenta("\n MainAI ❯");
   chatArea.addChild(assistantLabel);
@@ -126,6 +202,8 @@ editor.onSubmit = async (text: string) => {
         }
 
         case "result": {
+          // Write assistant response to Turso
+          appendEvent(activeChatId, "turn.assistant_text", { text: fullText });
           tui.requestRender();
           break;
         }
@@ -143,25 +221,26 @@ editor.onSubmit = async (text: string) => {
 };
 
 // ---------------------------------------------------------------------------
-// Layout
+// Layout: header → split(sidebar | chat) → editor
 // ---------------------------------------------------------------------------
 
 tui.addChild(header);
-tui.addChild(headerSep);
-tui.addChild(chatArea);
+tui.addChild(splitLayout);
 tui.addChild(new Spacer());
 tui.addChild(editor);
 
 // ---------------------------------------------------------------------------
-// Start + focus + Ctrl+C
+// Start
 // ---------------------------------------------------------------------------
 
-tui.start();
-tui.setFocus(editor);  // <-- THIS was the fix: use tui.setFocus() not editor.focused
-tui.requestRender();
+initTurso().then(() => {
+  tui.start();
+  tui.setFocus(editor);
+  tui.requestRender();
+});
 
+// Ctrl+C to quit
 tui.addInputListener((data: string) => {
-  // Ctrl+C
   if (data === "\x03") {
     tui.stop();
     process.exit(0);
