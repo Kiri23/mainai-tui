@@ -90,8 +90,8 @@ async function startPolling() {
     log("poll: checking from seq", lastSeenSeq);
     try {
       const result = await tursoDb.execute({
-        sql: "SELECT sequence, stream_id, event_type, payload, device, surface FROM events WHERE sequence > ? AND surface != ? ORDER BY sequence ASC LIMIT 50",
-        args: [lastSeenSeq, "tui"],
+        sql: "SELECT sequence, stream_id, event_type, payload, device, surface FROM events WHERE sequence > ? ORDER BY sequence ASC LIMIT 50",
+        args: [lastSeenSeq],
       });
       log("poll: got", result.rows.length, "rows");
       if (result.rows.length === 0) return;
@@ -105,22 +105,36 @@ async function startPolling() {
 
       for (const row of result.rows) {
         lastSeenSeq = row.sequence as number;
+        const surface = row.surface as string;
+
+        // Skip our own events — already shown locally
+        if (surface === "tui") continue;
+
         const payload = JSON.parse(row.payload as string);
         const device = row.device as string;
         const streamId = row.stream_id as string;
+        log("poll: event", row.event_type, "from", surface, "chat", streamId);
 
         if (row.event_type === "chat.created") {
           sidebar.addChat({ id: streamId, title: payload.title ?? "Chat", device });
           sidebar.invalidate();
         }
 
-        if (row.event_type === "turn.user_message" && streamId === activeChatId) {
+        if (row.event_type === "turn.user_message") {
+          // Auto-switch to this chat
+          activeChatId = streamId;
+          sidebar.setActive(activeChatId);
+          sidebar.invalidate();
+
           const msg = new Text();
-          msg.text = chalk.bold.green(`\n ${device} ❯ `) + (payload.content ?? "");
+          msg.text = chalk.bold.green(`\n ${device}/${surface} ❯ `) + (payload.content ?? "");
           chatArea.addChild(msg);
         }
 
-        if (row.event_type === "turn.assistant_text" && streamId === activeChatId) {
+        if (row.event_type === "turn.assistant_text") {
+          const label = new Text();
+          label.text = chalk.bold.magenta(`\n MainAI (${surface}) ❯`);
+          chatArea.addChild(label);
           const md = new Markdown("", 1, 0, markdownTheme);
           md.setText(payload.text ?? "");
           chatArea.addChild(md);
