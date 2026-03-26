@@ -6,7 +6,16 @@
  * Usage: node --import tsx/esm src/index.ts
  */
 import "dotenv/config";
+import * as fs from "node:fs";
 import { TUI, Container, Text, Markdown, Editor, Spacer, ProcessTerminal } from "@mariozechner/pi-tui";
+
+const LOG_FILE = process.env.HOME + "/mainai-tui-debug.log";
+function log(...args: any[]) {
+  try {
+    fs.appendFileSync(LOG_FILE, new Date().toISOString() + " " + args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ") + "\n");
+  } catch {}
+}
+log("--- started ---");
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getMcpServers, getAllowedTools } from "mainai-primitives/js-runner/src/mcp-config.ts";
 import { randomUUID } from "node:crypto";
@@ -23,10 +32,12 @@ const TURSO_URL = process.env.TURSO_URL ?? "";
 const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN ?? "";
 
 async function initTurso() {
-  if (!TURSO_URL || !TURSO_TOKEN) return;
+  log("initTurso", { url: TURSO_URL ? "set" : "empty", token: TURSO_TOKEN ? "set" : "empty" });
+  if (!TURSO_URL || !TURSO_TOKEN) { log("initTurso: skipped, no env vars"); return; }
   try {
     const { createClient } = await import("@libsql/client/http");
     tursoDb = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
+    log("initTurso: client created");
     // Load existing chats
     const result = await tursoDb.execute(
       "SELECT DISTINCT stream_id, event_type, payload, device FROM events WHERE event_type = 'chat.created' ORDER BY sequence DESC LIMIT 10"
@@ -59,18 +70,38 @@ async function appendEvent(streamId: string, eventType: string, payload: Record<
 let lastSeenSeq = 0;
 
 async function startPolling() {
-  if (!tursoDb) return;
-  // Get current max sequence
-  const maxRes = await tursoDb.execute("SELECT COALESCE(MAX(sequence), 0) as seq FROM events");
-  lastSeenSeq = (maxRes.rows[0]?.seq as number) ?? 0;
+  if (!tursoDb) {
+    header.text = chalk.bold.cyan(" ◆ MainAI") + chalk.red(" [no turso db]");
+    tui.requestRender();
+    return;
+  }
+  try {
+    const maxRes = await tursoDb.execute("SELECT COALESCE(MAX(sequence), 0) as seq FROM events");
+    lastSeenSeq = (maxRes.rows[0]?.seq as number) ?? 0;
+    log("startPolling: from seq", lastSeenSeq);
+    header.text = chalk.bold.cyan(" ◆ MainAI") + chalk.dim(` [polling from seq ${lastSeenSeq}]`);
+    tui.requestRender();
+  } catch (err: any) {
+    log("startPolling: init error", err.message);
+    return;
+  }
 
   setInterval(async () => {
+    log("poll: checking from seq", lastSeenSeq);
     try {
       const result = await tursoDb.execute({
-        sql: "SELECT sequence, stream_id, event_type, payload, device, surface FROM events WHERE sequence > ? AND surface != 'tui' ORDER BY sequence ASC LIMIT 50",
-        args: [lastSeenSeq],
+        sql: "SELECT sequence, stream_id, event_type, payload, device, surface FROM events WHERE sequence > ? AND surface != ? ORDER BY sequence ASC LIMIT 50",
+        args: [lastSeenSeq, "tui"],
       });
+      log("poll: got", result.rows.length, "rows");
       if (result.rows.length === 0) return;
+
+      // Debug: show sync indicator
+      header.text = chalk.bold.cyan(" ◆ MainAI") + chalk.green(` +${result.rows.length} synced`);
+      setTimeout(() => {
+        header.text = chalk.bold.cyan(" ◆ MainAI");
+        tui.requestRender();
+      }, 2000);
 
       for (const row of result.rows) {
         lastSeenSeq = row.sequence as number;
@@ -97,7 +128,9 @@ async function startPolling() {
       }
 
       tui.requestRender();
-    } catch {}
+    } catch (err: any) {
+      log("poll: ERROR", err.message, err.stack?.slice(0, 200));
+    }
   }, 3000);
 }
 
@@ -281,10 +314,11 @@ tui.addChild(editor);
 // ---------------------------------------------------------------------------
 
 initTurso().then(() => {
-  startPolling();
   tui.start();
   tui.setFocus(editor);
   tui.requestRender();
+  // Start polling AFTER tui is started
+  startPolling();
 });
 
 // Ctrl+C to quit
