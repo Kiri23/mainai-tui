@@ -34,7 +34,7 @@ async function loadChatMessages(chatId: string): Promise<ChatMsg[]> {
   if (!tursoDb) return [];
   await tursoDb.sync();
   const res = await tursoDb.execute({
-    sql: "SELECT event_type, payload, device, surface FROM events WHERE stream_id = ? AND event_type IN (turn.user_message, turn.assistant_text) ORDER BY sequence ASC",
+    sql: "SELECT event_type, payload, device, surface FROM events WHERE stream_id = ? AND event_type IN ('turn.user_message', 'turn.assistant_text') ORDER BY sequence ASC",
     args: [chatId],
   });
   return res.rows.map((row: any) => {
