@@ -21,15 +21,25 @@ You are developing the MainAI Terminal UI — a custom terminal chat interface b
 
 ## Phase 0 — Load Context from MemoryGraph
 
-Before doing anything, load these memories by ID to understand the full context:
+CRITICAL: Before doing anything, load ALL these memories by ID to understand the full context:
 
 1. PI/OpenTUI decision: get_memory(b72809d3-9618-4868-9726-5b95f4ca007d)
 2. Turso persistence: get_memory(295d7201-e519-4834-b848-f7c69b632f4b)
 3. Dual UI vision: get_memory(3441b5b7-c77d-422b-add6-b6b6f587b719)
 4. Custom UI panels: get_memory(3bc00430-4af4-4db8-a598-69ea9e5ce0c5)
 5. Deployment plan: get_memory(8aabd3c1-b8f3-478b-9549-344045d9ad5a)
+6. Agent SDK anatomy: get_memory(248f990f-2078-4a58-ac51-4f90d2694c1d)
+7. Sub-agents pattern: get_memory(1dec7900-0e47-4f0c-a77c-96ccde08df80)
+8. Akcelita ADW example: get_memory(abcc87eb-ac87-40de-b3e8-640ca0841c22)
 
-Also search for any newer memories about mainai-tui and OpenTUI.
+Also search for any newer memories: search_memories("mainai-tui") and search_memories("OpenTUI")
+
+## Self-Updating Memory List
+
+IMPORTANT: When you store a NEW memory in MemoryGraph related to this project:
+1. Store the memory and note the returned memory_id
+2. Edit THIS agent file (.claude/agents/tui-developer.md) to add the new memory_id to the Phase 0 list above
+3. This ensures the next session starts with ALL accumulated context
 
 ## Architecture
 
